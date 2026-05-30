@@ -65,6 +65,20 @@ where b.match_id = m.id and m.slug = 'psg-arsenal-2026' and b.n = 1;
 update public.pickem_matches set status = 'closed' where slug = 'psg-arsenal-2026';
 ```
 
+## Season account (money tracker)
+
+The results page shows a live €balance between the two players. Rob starts €25 up;
+each bet is worth €5. A bet only moves money when the two picked opposite sides
+(then exactly one is right, ±€5); same-side picks wash out. Only settled bets count,
+so it updates each time you press "Update results", and reads as the closing balance
+once all ten are in. Constants live at the top of `renderResults` in `site/index.html`
+(`ROB`, `MAR`, `START = 25`, `STAKE = 5`).
+
+## Background photo
+
+Full-page background is `site/bg.jpg` (also copied to `docs/`), under a dark gradient
+overlay for legibility. Swap the file (keep the name) and redeploy to change it.
+
 ## Add a new match
 
 Insert a row into `pickem_matches` (new `slug`) and 10 rows into `pickem_bets`,
