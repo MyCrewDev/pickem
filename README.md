@@ -19,7 +19,16 @@ tally appears. Reusable for every match (one row per match, season tally across 
   can call it; the function is the only writer (uses service_role server-side).
   - `GET` -> `{ match, bets }`
   - `GET ?view=results` -> `{ match, bets, entries }`
+  - `GET ?action=grade&key=robmeister` -> auto-grades from the live feed, returns `{ settled, pending, status }`
   - `POST { match, player, picks }` -> `{ ok }`
+- **Picks lock** at kick-off: the API rejects submissions once `kickoff` passes.
+- **Auto-grading** reads ESPN's free, no-key soccer summary feed
+  (`site.api.espn.com/.../uefa.champions/summary?event=<espn_event_id>`), which
+  exposes goal minutes, scorers/assisters, cards, penalties, and the result incl.
+  extra time. The ESPN event id is stored on `pickem_matches.espn_event_id`
+  (this final = `401862897`). Mapping logic validated against the 2025 final.
+  (The football-data.org token obtained during setup went unused; ESPN alone
+  covers all ten markets.)
 - **Data**: `public.pickem_matches`, `public.pickem_bets`, `public.pickem_entries`
   (RLS on; only service_role reaches them). See `schema.sql`.
 
@@ -28,18 +37,27 @@ tally appears. Reusable for every match (one row per match, season tally across 
 > storage alike), so it can't render an HTML app. The page lives off-platform and
 > talks to the function.
 
-## Grading after the match
+## Grading (automatic)
 
-Set the winning side (`A` or `B`) on each bet, then the results page auto-tallies:
+Open the admin results page:
 
-```sql
-update public.pickem_bets b set correct = 'A'  -- or 'B'
-from public.pickem_matches m
-where b.match_id = m.id and m.slug = 'psg-arsenal-2026' and b.n = 1;
--- repeat per bet (n = 1..10)
+```
+https://mycrewdev.github.io/pickem/?view=results&admin=robmeister
 ```
 
-`A` = first option, `B` = second option (see `opt_a` / `opt_b`).
+It shows an "Update results" button. Press it any time during/after the match;
+it pulls live ESPN events and settles every bet that's now decided (the rest stay
+pending until they happen). The standings/tally update on the page automatically.
+"Yes"-type outcomes settle the moment they occur (goal in 15', red card, etc.);
+"No"-type and the winner settle once the relevant point has passed (HT, 90 mins, FT).
+
+Manual override (if ever needed): set `correct` to `A`/`B` per bet.
+
+```sql
+update public.pickem_bets b set correct = 'A'
+from public.pickem_matches m
+where b.match_id = m.id and m.slug = 'psg-arsenal-2026' and b.n = 1;
+```
 
 ## Close picks at kickoff
 
