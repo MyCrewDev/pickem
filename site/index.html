@@ -152,7 +152,6 @@
             <button type="button" class="chip" data-name="RobitityRob">RobitityRob</button>
             <button type="button" class="chip" data-name="MeisterMarkus">MeisterMarkus</button>
           </div>
-          <input id="name" placeholder="…or type your name" autocomplete="off">
         </div>
         ${cards}
         <a class="link" href="?view=results&match=${esc(SLUG)}">View results →</a>
@@ -190,13 +189,8 @@
     }));
     document.querySelectorAll(".chip").forEach((chip) => chip.addEventListener("click", () => {
       document.querySelectorAll(".chip").forEach((c) => c.classList.remove("on"));
-      chip.classList.add("on"); name = chip.dataset.name; $("#name").value = ""; refresh();
+      chip.classList.add("on"); name = chip.dataset.name; refresh();
     }));
-    $("#name").addEventListener("input", (e) => {
-      name = e.target.value;
-      document.querySelectorAll(".chip").forEach((c) => c.classList.remove("on"));
-      refresh();
-    });
 
     submit.addEventListener("click", async () => {
       submit.disabled = true; err.textContent = ""; submit.textContent = "Saving…";
