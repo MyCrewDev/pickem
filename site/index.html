@@ -95,6 +95,7 @@
   const API = "https://ybwamkukfhwtwnekyyfk.supabase.co/functions/v1/pickem";
   const params = new URLSearchParams(location.search);
   const SLUG = params.get("match") || "psg-arsenal-2026";
+  const ADMIN = params.get("admin");
   const app = document.getElementById("app");
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) =>
     ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -249,6 +250,12 @@
       body = tally + '<table>' + head + rows + '</table>';
     }
 
+    const adminBar = ADMIN ? `
+      <div style="text-align:center;margin:4px 0 18px">
+        <button id="upd" class="submit" style="max-width:280px">Update results</button>
+        <div id="ustat" style="font-size:12px;color:var(--mut);margin-top:8px;min-height:16px"></div>
+      </div>` : "";
+
     app.innerHTML = `
       <header>
         <div class="comp">${esc(m.competition)}</div>
@@ -258,8 +265,23 @@
           <div class="team"><div class="crest ars">ARS</div><div class="tname">${esc(m.away)}</div></div>
         </div>
       </header>
+      ${adminBar}
       ${body}
-      <a class="link" href="?match=${esc(SLUG)}">← Back to picks</a>`;
+      <a class="link" href="?match=${esc(SLUG)}${ADMIN ? "&admin=" + esc(ADMIN) : ""}">← Back to picks</a>`;
+
+    const btn = document.getElementById("upd");
+    if (btn) btn.addEventListener("click", async () => {
+      btn.disabled = true; btn.textContent = "Updating…";
+      const stat = document.getElementById("ustat");
+      try {
+        const r = await fetch(API + "?action=grade&key=" + encodeURIComponent(ADMIN) + "&match=" + encodeURIComponent(SLUG));
+        const j = await r.json();
+        stat.textContent = j.ok
+          ? (j.settled.length + " settled · " + j.pending.length + " still pending · " + j.status)
+          : (j.error || "Something went wrong");
+      } catch (e) { stat.textContent = String(e); }
+      setTimeout(renderResults, 700);
+    });
   }
 
   (params.get("view") === "results" ? renderResults : renderForm)();
