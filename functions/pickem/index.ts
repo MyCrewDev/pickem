@@ -77,10 +77,13 @@ async function handleSubmit(req: Request): Promise<Response> {
       return json({ ok: false, error: "Picks required" }, 400);
     }
     const { data: match } = await supabase
-      .from("pickem_matches").select("id, status").eq("slug", slug).single();
+      .from("pickem_matches").select("id, status, kickoff").eq("slug", slug).single();
     if (!match) return json({ ok: false, error: "Match not found" }, 404);
     if (match.status !== "open") {
       return json({ ok: false, error: "Picks are closed for this match." }, 403);
+    }
+    if (match.kickoff && new Date(match.kickoff).getTime() <= Date.now()) {
+      return json({ ok: false, error: "Picks closed at kick-off. Too late!" }, 403);
     }
     const { error } = await supabase.from("pickem_entries")
       .insert({ match_id: match.id, player, picks });
