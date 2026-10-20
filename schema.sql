@@ -43,3 +43,9 @@ grant all on public.pickem_matches to service_role;
 grant all on public.pickem_bets    to service_role;
 grant all on public.pickem_entries to service_role;
 grant usage, select on all sequences in schema public to service_role;
+
+-- 20 Oct 2026: seasons, multi-game nights, per-bet rules (migration pickem_seasons_games_rules)
+-- pickem_seasons(slug pk, name, opening_balance, stake, opening_note, starts_on)
+-- pickem_matches + season, title, graded_at
+-- pickem_games(match_id, key, home, away, *_short, *_color, venue, kickoff, espn_event_id, home_score, away_score, state, clock)
+-- pickem_bets + game_key, rule jsonb

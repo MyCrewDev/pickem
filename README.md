@@ -1,90 +1,56 @@
-# Pick'em — Rob & Marcus bet collector
+# Pick'em: Rob & Marcus bet collector
 
-A branded match-day "pick'em" page. Rob presents a set of two-way bets, Marcus
-(or anyone) taps a side per bet and submits. Picks land in Supabase and Rafa can
-read them back instantly. After the match the bets get graded and a head-to-head
-tally appears. Reusable for every match (one row per match, season tally across them).
+A match-night "pick'em". Rob sets a handful of two-way bets for a night of football,
+both players tap a side on each, picks lock at kick-off, and the board grades itself
+from ESPN's live feed. A season account tracks the € balance night by night.
 
-## Live URLs (PSG v Arsenal, 2026 CL final)
+- Site: https://mycrewdev.github.io/pickem/
+- Tabs: Tonight (picks, then a live board) · Upcoming (our nights + next Champions League
+  fixtures) · Results (every past night) · Season (running € account, chart, 2025-26 archive)
 
-- Picks page: https://mycrewdev.github.io/pickem/
-- Results / standings: https://mycrewdev.github.io/pickem/?view=results&match=psg-arsenal-2026
+## Money
+
+€5 a bet. A bet only moves money when the two of you picked opposite sides. Balance is
+stored as "positive = RobitityRob up". 2025-26 opened at Rob +€25 and closed at Rob +€15
+after the final; that €15 is the 2026-27 opening balance (`pickem_seasons`).
 
 ## Architecture
 
-- **UI**: static `docs/index.html`, hosted on GitHub Pages (`MyCrewDev/pickem`).
-  Data-driven: it fetches the match + bets from the API and renders the form.
-- **API**: Supabase Edge Function `pickem` (project `fluentry-prod`,
-  `functions/pickem/index.ts`). JSON API with CORS. `verify_jwt` off so the page
-  can call it; the function is the only writer (uses service_role server-side).
-  - `GET` -> `{ match, bets }`
-  - `GET ?view=results` -> `{ match, bets, entries }`
-  - `GET ?action=grade&key=robmeister` -> auto-grades from the live feed, returns `{ settled, pending, status }`
-  - `POST { match, player, picks }` -> `{ ok }`
-- **Picks lock** at kick-off: the API rejects submissions once `kickoff` passes.
-- **Auto-grading** reads ESPN's free, no-key soccer summary feed
-  (`site.api.espn.com/.../uefa.champions/summary?event=<espn_event_id>`), which
-  exposes goal minutes, scorers/assisters, cards, penalties, and the result incl.
-  extra time. The ESPN event id is stored on `pickem_matches.espn_event_id`
-  (this final = `401862897`). Mapping logic validated against the 2025 final.
-  (The football-data.org token obtained during setup went unused; ESPN alone
-  covers all ten markets.)
-- **Data**: `public.pickem_matches`, `public.pickem_bets`, `public.pickem_entries`
-  (RLS on; only service_role reaches them). See `schema.sql`.
+- **UI**: `site/index.html` (copied to `docs/` for GitHub Pages, repo `MyCrewDev/pickem`).
+- **API**: Supabase edge function `pickem` (project `fluentry-prod`), `functions/pickem/`.
+  `index.ts` = routes + database; `grading.ts` = pure grading rules.
+- **Data** (RLS on, only the function reads/writes):
+  - `pickem_seasons`: name, opening balance, stake
+  - `pickem_matches`: one row per night ("card"): slug, title, season, kickoff, status open/closed/settled
+  - `pickem_games`: the fixtures on a card, each with its ESPN event id and live score
+  - `pickem_bets`: per-bet `rule` (JSON) and `game_key`; `correct` = A/B once settled
+  - `pickem_entries`: submissions; latest per player counts
 
-> Why GitHub Pages and not Supabase? Supabase forces `content-type: text/plain`
-> and a sandbox CSP on everything served from `*.supabase.co` (edge functions and
-> storage alike), so it can't render an HTML app. The page lives off-platform and
-> talks to the function.
+## Grading: automatic, no admin key
 
-## Grading (automatic)
+Opening a board refreshes it from ESPN, at most every 45 seconds per night. Bet rules:
+`winner_home`, `margin_home {min}`, `team_scores {side}`, `total_over {line}`, `btts`,
+`player {name, mode: involved|scores}`, `goal_before {minute}`, `extra_time`, `red_card`,
+`penalty`, `compare_totals {a, b}` (across two games). "Yes" outcomes settle the moment
+they happen; the rest settle at full time.
 
-Open the admin results page:
+ESPN blocks requests whose user agent says "Deno", so `grading.ts` sends a browser one.
+Proof against real matches: `deno run --allow-net test/grade_test.ts`.
 
-```
-https://mycrewdev.github.io/pickem/?view=results&admin=robmeister
-```
+Manual override: `update pickem_bets set correct='A' where ...`.
 
-It shows an "Update results" button. Press it any time during/after the match;
-it pulls live ESPN events and settles every bet that's now decided (the rest stay
-pending until they happen). The standings/tally update on the page automatically.
-"Yes"-type outcomes settle the moment they occur (goal in 15', red card, etc.);
-"No"-type and the winner settle once the relevant point has passed (HT, 90 mins, FT).
+## Picks are private until kick-off
 
-Manual override (if ever needed): set `correct` to `A`/`B` per bet.
+Before kick-off the API only says who has picked, not what. You can change your
+picks until then (latest submission wins).
 
-```sql
-update public.pickem_bets b set correct = 'A'
-from public.pickem_matches m
-where b.match_id = m.id and m.slug = 'psg-arsenal-2026' and b.n = 1;
-```
+## Adding a night
 
-## Close picks at kickoff
-
-```sql
-update public.pickem_matches set status = 'closed' where slug = 'psg-arsenal-2026';
-```
-
-## Season account (money tracker)
-
-The results page shows a live €balance between the two players. Rob starts €25 up;
-each bet is worth €5. A bet only moves money when the two picked opposite sides
-(then exactly one is right, ±€5); same-side picks wash out. Only settled bets count,
-so it updates each time you press "Update results", and reads as the closing balance
-once all ten are in. Constants live at the top of `renderResults` in `site/index.html`
-(`ROB`, `MAR`, `START = 25`, `STAKE = 5`).
-
-## Background photo
-
-Full-page background is `site/bg.jpg` (also copied to `docs/`), under a dark gradient
-overlay for legibility. Swap the file (keep the name) and redeploy to change it.
-
-## Add a new match
-
-Insert a row into `pickem_matches` (new `slug`) and 10 rows into `pickem_bets`,
-then share `https://mycrewdev.github.io/pickem/?match=<slug>`.
+Insert a `pickem_matches` row (season, title, kickoff), its `pickem_games` (ESPN event ids
+from `site.api.espn.com/apis/site/v2/sports/soccer/uefa.champions/scoreboard?dates=YYYYMMDD`)
+and its `pickem_bets` with rules. It appears on Tonight on the day.
 
 ## Deploy
 
-- UI: `bash deploy-pages.sh` (run on the host; copies `site/` -> `docs/`, pushes, enables Pages).
-- API: redeploy `functions/pickem/index.ts` via the Supabase MCP `deploy_edge_function`.
+- UI: `bash deploy-pages.sh` on the Mac (copies `site/` to `docs/`, pushes).
+- API: redeploy `functions/pickem/` via the Supabase MCP `deploy_edge_function`.
