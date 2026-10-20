@@ -12,7 +12,7 @@ touch docs/.nojekyll
 
 git init -q
 git add -A
-git -c user.email="rob@bruv.co.uk" -c user.name="MyCrewDev" commit -q -m "Pick'em: seasons, navigation, live board, self-grading" || true
+git -c user.email="rob@bruv.co.uk" -c user.name="MyCrewDev" commit -q -m "Picker: lock in whoever has already picked" || true
 git branch -M main
 
 if gh repo view MyCrewDev/pickem >/dev/null 2>&1; then
