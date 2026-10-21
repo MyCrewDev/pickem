@@ -63,7 +63,50 @@ export function decide(rule: any, f: Feed | undefined, feeds: Record<string, Fee
   const goals = f.events.filter((e) => e?.scoringPlay && periodOf(e) <= 4);
   const notOwn = goals.filter((g) => !/own goal/i.test(g?.type?.text ?? ""));
   const sideGoals = (side: string) => goals.filter((g) => f.teamSide[String(g?.team?.id)] === side).length;
+  // The side a goal counted FOR. ESPN tags an own goal with the scorer's own team,
+  // so it counts for the opposition.
+  const goalFor = (g: any): string | undefined => {
+    const s = f.teamSide[String(g?.team?.id)];
+    if (!s) return undefined;
+    return /own goal/i.test(g?.type?.text ?? "") ? (s === "home" ? "away" : "home") : s;
+  };
+  // Goals in the order they were scored (period, then minute).
+  const inOrder = goals.slice().sort((a, b) =>
+    (periodOf(a) - periodOf(b)) || (minuteOf(a) - minuteOf(b)));
   switch (rule.type) {
+    // Every sub-rule must land on A; one B settles the whole thing as B.
+    case "all": {
+      const parts = (rule.rules ?? []).map((r: any) => decide(r, f, feeds));
+      if (parts.some((p: any) => p === "B")) return "B";
+      return parts.length && parts.every((p: any) => p === "A") ? "A" : undefined;
+    }
+    // Home doesn't lose: a draw or a home win.
+    case "no_loss": {
+      if (!f.over) return undefined;
+      const [us, them] = rule.side === "away" ? [f.away, f.home] : [f.home, f.away];
+      return us >= them ? "A" : "B";
+    }
+    // The first goal of the match was scored by this side. 0-0 settles as B.
+    case "first_goal": {
+      const first = inOrder[0];
+      if (first) { const s = goalFor(first); if (s) return s === rule.side ? "A" : "B"; }
+      return f.over ? "B" : undefined;
+    }
+    // The first goal of the match was scored by this player. 0-0 settles as B.
+    case "first_scorer": {
+      const first = inOrder[0];
+      if (first) {
+        if (/own goal/i.test(first?.type?.text ?? "")) return "B";
+        const who = norm((first?.participants ?? [])[0]?.athlete?.displayName ?? "");
+        return who.includes(norm(rule.name)) ? "A" : "B";
+      }
+      return f.over ? "B" : undefined;
+    }
+    // A goal on or after this minute, either side, stoppage time included.
+    case "goal_after": {
+      if (goals.some((g) => minuteOf(g) >= rule.minute)) return "A";
+      return f.over ? "B" : undefined;
+    }
     case "winner_home": {
       if (!f.over) return undefined;
       if (f.winner) return f.winner === "home" ? "A" : "B";

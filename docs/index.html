@@ -96,6 +96,12 @@
   .opt:active{transform:scale(.98)}
   .opt.on{background:linear-gradient(135deg,var(--gold),var(--goldlt));color:#1a1205;border-color:var(--goldlt);
     box-shadow:0 6px 16px rgba(200,162,75,.25)}
+  .mirror{margin:9px 0 0;font-size:12px;color:var(--mut);text-align:center;min-height:16px}
+  .mirror b{color:var(--txt);font-weight:700}
+  .sides{display:flex;gap:10px;justify-content:flex-end;font-size:13px}
+  .sides span{color:var(--mut)}
+  .chosenby{display:flex;align-items:center;justify-content:center;gap:7px;font-size:13px;color:var(--mut);margin:14px 0 2px}
+  .chosenby b{color:var(--goldlt)}
   .bar{position:fixed;left:0;right:0;bottom:0;z-index:15;padding:12px 16px calc(12px + env(safe-area-inset-bottom));
     background:linear-gradient(180deg,rgba(7,16,31,0),#07101f 38%);}
   .barin{max-width:560px;margin:0 auto}
@@ -211,6 +217,7 @@ const ROB = "RobitityRob", MAR = "MeisterMarkus";
 const params = new URLSearchParams(location.search);
 const app = document.getElementById("app");
 const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const shortName = (p) => p === ROB ? "Rob" : p === MAR ? "Marcus" : p;
 const api = async (q) => { const r = await fetch(API + q, { headers: { accept: "application/json" } }); return r.json(); };
 const eur = (n) => "€" + Math.abs(n);
 
@@ -342,61 +349,87 @@ function cardHeader(card, back){
 
 async function renderPicker(card, tab){
   const bets = card.bets, TOTAL = bets.length;
+  // One chooser answers the whole card; the other is put on the other side of every bet.
+  const solo = card.match.mode === "chooser";
   const status = await api("?view=results&match=" + encodeURIComponent(card.match.slug)).catch(() => null);
-  const inAlready = new Set((status?.entries || []).map((e) => e.player));
-  const picks = {}; let name = "";
+  const entryOf = {};
+  for (const e of status?.entries || []) entryOf[e.player] = e;
+  const picks = {};
+  let name = solo ? (card.match.chooser || "") : "";
+  // Coming back to a card already answered: show the answers, ready to change.
+  if (solo && name && entryOf[name]?.picks) Object.assign(picks, entryOf[name].picks);
+  const label = (b, c) => c === "A" ? b.opt_a : b.opt_b;
+  const them = () => name === ROB ? MAR : ROB;
+
   const gameOf = (k) => card.games.find((g) => g.key === k);
   let lastKey = "~";
   const blocks = bets.map((b) => {
-    let label = "";
+    let head = "";
     const key = b.game_key || "both";
     if (key !== lastKey) {
       lastKey = key;
       const g = gameOf(b.game_key);
-      label = g ? `<div class="glabel"><span class="dot" style="background:${g.home_color}"></span>${esc(g.home)} v ${esc(g.away)}</div>`
-                : `<div class="glabel"><span class="dot" style="background:var(--gold)"></span>Across both games</div>`;
+      head = g ? `<div class="glabel"><span class="dot" style="background:${g.home_color}"></span>${esc(g.home)} v ${esc(g.away)}</div>`
+               : `<div class="glabel"><span class="dot" style="background:var(--gold)"></span>Across both games</div>`;
     }
-    return label + `<div class="bet" data-n="${b.n}">
+    return head + `<div class="bet${picks[b.n] ? " done" : ""}" data-n="${b.n}">
       <div class="bhead"><span class="num">${b.n}</span><h3>${esc(b.title)}</h3></div>
       ${b.blurb ? `<p class="blurb">${esc(b.blurb)}</p>` : ""}
       <div class="opts">
-        <button type="button" class="opt" data-n="${b.n}" data-c="A">${esc(b.opt_a)}</button>
-        <button type="button" class="opt" data-n="${b.n}" data-c="B">${esc(b.opt_b)}</button>
-      </div></div>`;
+        <button type="button" class="opt${picks[b.n] === "A" ? " on" : ""}" data-n="${b.n}" data-c="A">${esc(b.opt_a)}</button>
+        <button type="button" class="opt${picks[b.n] === "B" ? " on" : ""}" data-n="${b.n}" data-c="B">${esc(b.opt_b)}</button>
+      </div>
+      ${solo ? `<p class="mirror" data-mirror="${b.n}"></p>` : ""}
+    </div>`;
   }).join("");
+
+  const chip = (p) => {
+    const sub = solo
+      ? (card.match.chooser === p ? "Chose this card" : "Tap to choose")
+      : (entryOf[p] ? "Picked · tap to change" : "Not picked yet");
+    return `<button type="button" class="chip${name === p ? " on" : ""}" data-name="${p}">${p}<small>${sub}</small></button>`;
+  };
 
   app.innerHTML = `<div id="form">
     ${cardHeader(card)}
-    <div class="lock">${ICON.lock}Picks lock at kick-off, <b>${tSpain(lockOf(card))} Spain · ${tUK(lockOf(card))} UK</b></div>
+    <div class="lock">${ICON.lock}${solo ? "Card locks at the first kick-off, " : "Picks lock at kick-off, "}<b>${tSpain(lockOf(card))} Spain · ${tUK(lockOf(card))} UK</b></div>
     <div class="who panel">
-      <div class="lbl">Who's picking?</div>
-      <div class="chips">
-        <button type="button" class="chip" data-name="${ROB}">${ROB}<small>${inAlready.has(ROB) ? "Picked · tap to change" : "Not picked yet"}</small></button>
-        <button type="button" class="chip" data-name="${MAR}">${MAR}<small>${inAlready.has(MAR) ? "Picked · tap to change" : "Not picked yet"}</small></button>
-      </div>
+      <div class="lbl">${solo ? "Who's choosing tonight's bets?" : "Who's picking?"}</div>
+      <div class="chips">${chip(ROB)}${chip(MAR)}</div>
+      ${solo ? `<p class="note" style="font-size:12px;margin:10px 2px 0">Whoever doesn't choose is automatically on the other side of all ${TOTAL}.</p>` : ""}
     </div>
     ${blocks}
     <div style="margin-top:18px"><a class="btn ghost" href="?match=${esc(card.match.slug)}&view=board${tab === "tonight" ? "" : "&tab=" + tab}">See the board</a></div>
   </div>
   <div id="done" class="done-screen" style="display:none">
     ${ICON.trophy}
-    <h2>Picks locked in</h2>
+    <h2>${solo ? "Tonight's card is set" : "Picks locked in"}</h2>
     <p class="note" id="doneby"></p>
     <div class="summary" id="summary"></div>
-    <p class="note" style="margin-top:16px">Your picks stay hidden from each other until kick-off.</p>
+    <p class="note" style="margin-top:16px" id="donefoot"></p>
     <div style="margin-top:14px"><a class="btn ghost" href="?match=${esc(card.match.slug)}&view=board">See the board</a></div>
   </div>
   <div class="bar" id="bar"><div class="barin">
-    <div class="prog" id="prog">0 of ${TOTAL} picked</div>
+    <div class="prog" id="prog"></div>
     <div class="err" id="err"></div>
-    <button class="btn" id="submit" disabled>Lock in my picks</button>
+    <button class="btn" id="submit" disabled>${solo ? "Lock in tonight's card" : "Lock in my picks"}</button>
   </div></div>`;
 
   const $ = (s) => document.querySelector(s);
+  const word = solo ? "answered" : "picked";
   const refresh = () => {
     const c = Object.keys(picks).length;
-    $("#prog").textContent = (name ? name + " · " : "Pick who you are · ") + c + " of " + TOTAL + " picked";
+    const who = name ? name + " · " : (solo ? "Say who's choosing · " : "Pick who you are · ");
+    $("#prog").textContent = who + c + " of " + TOTAL + " " + word;
     $("#submit").disabled = !(c === TOTAL && name);
+    if (!solo) return;
+    for (const b of bets) {
+      const el = document.querySelector('[data-mirror="' + b.n + '"]');
+      if (!el) continue;
+      el.innerHTML = (name && picks[b.n])
+        ? esc(them()) + " gets <b>" + esc(label(b, picks[b.n] === "A" ? "B" : "A")) + "</b>"
+        : "";
+    }
   };
   document.querySelectorAll(".opt").forEach((btn) => btn.addEventListener("click", () => {
     const n = btn.dataset.n, c = btn.dataset.c; picks[n] = c;
@@ -404,9 +437,9 @@ async function renderPicker(card, tab){
     el.querySelectorAll(".opt").forEach((o) => o.classList.toggle("on", o.dataset.c === c));
     el.classList.add("done"); refresh();
   }));
-  document.querySelectorAll(".chip").forEach((chip) => chip.addEventListener("click", () => {
-    document.querySelectorAll(".chip").forEach((c) => c.classList.remove("on"));
-    chip.classList.add("on"); name = chip.dataset.name; refresh();
+  document.querySelectorAll(".chip").forEach((c) => c.addEventListener("click", () => {
+    document.querySelectorAll(".chip").forEach((x) => x.classList.remove("on"));
+    c.classList.add("on"); name = c.dataset.name; refresh();
   }));
   $("#submit").addEventListener("click", async () => {
     const s = $("#submit"); s.disabled = true; $("#err").textContent = ""; s.textContent = "Saving…";
@@ -416,10 +449,25 @@ async function renderPicker(card, tab){
       const j = await r.json();
       if (!j.ok) throw new Error(j.error || "Something went wrong");
       $("#form").style.display = "none"; $("#bar").style.display = "none";
-      $("#doneby").textContent = name + " · all " + TOTAL + " picks in";
-      $("#summary").innerHTML = bets.map((b) => '<div class="srow"><span>' + b.n + '. ' + esc(b.title) + '</span><b>' + esc(picks[b.n] === "A" ? b.opt_a : b.opt_b) + '</b></div>').join("");
+      $("#doneby").textContent = solo
+        ? name + " chose all " + TOTAL + " · " + them() + " is on the other side"
+        : name + " · all " + TOTAL + " picks in";
+      $("#summary").innerHTML = bets.map((b) => {
+        const mine = esc(label(b, picks[b.n]));
+        const theirs = esc(label(b, picks[b.n] === "A" ? "B" : "A"));
+        const right = solo
+          ? `<b class="sides"><span>${esc(them())} ${theirs}</span>${mine}</b>`
+          : `<b>${mine}</b>`;
+        return '<div class="srow"><span>' + b.n + '. ' + esc(b.title) + '</span>' + right + '</div>';
+      }).join("");
+      $("#donefoot").textContent = solo
+        ? "Every bet moves €5, win or lose. You can change the card until kick-off."
+        : "Your picks stay hidden from each other until kick-off.";
       $("#done").style.display = "block"; window.scrollTo(0, 0);
-    } catch (e) { $("#err").textContent = e.message; s.disabled = false; s.textContent = "Lock in my picks"; }
+    } catch (e) {
+      $("#err").textContent = e.message; s.disabled = false;
+      s.textContent = solo ? "Lock in tonight's card" : "Lock in my picks";
+    }
   });
   refresh();
 }
@@ -440,6 +488,8 @@ async function renderBoard(slug, tab){
   const live = card.games.some((g) => g.state === "in");
   const locked = isLocked(card);
   const hidden = (card.entries || []).some((e) => e.hidden);
+  const solo = card.match.mode === "chooser";
+  const chosenBy = solo ? card.match.chooser : null;
   if (live !== liveFlag && tab === "tonight") { liveFlag = live; nav(tab); }
 
   const label = (b, c) => c === "A" ? b.opt_a : c === "B" ? b.opt_b : "—";
@@ -456,7 +506,9 @@ async function renderBoard(slug, tab){
 
   let body;
   if (!card.entries.length) {
-    body = `<p class="note" style="margin-top:16px">No picks in yet.${!locked ? ` <a href="?match=${esc(slug)}${tab === "tonight" ? "" : "&tab=" + tab}">Make yours</a>.` : ""}</p>`;
+    body = solo
+      ? `<p class="note" style="margin-top:16px">Nobody has chosen tonight's card yet.${!locked ? ` <a href="?match=${esc(slug)}${tab === "tonight" ? "" : "&tab=" + tab}">Choose it</a>.` : ""}</p>`
+      : `<p class="note" style="margin-top:16px">No picks in yet.${!locked ? ` <a href="?match=${esc(slug)}${tab === "tonight" ? "" : "&tab=" + tab}">Make yours</a>.` : ""}</p>`;
   } else if (hidden) {
     body = `<div class="status">
         <div class="${r ? "in" : ""}">${r ? ICON.tick + " " : ""}${ROB}<br>${r ? "picked" : "not yet"}</div>
@@ -488,8 +540,12 @@ async function renderBoard(slug, tab){
     body = scores + `<div class="panel" style="margin-top:12px;padding:6px 10px 4px"><table class="tbl">${head}${rows}</table></div>`;
   }
 
+  const chosenLine = chosenBy
+    ? `<div class="chosenby">${ICON.tick}<b>${esc(chosenBy)}</b> chose tonight's card · ${esc(chosenBy === ROB ? MAR : ROB)} is on the other side${
+        locked ? "" : ` · <a href="?match=${esc(slug)}${tab === "tonight" ? "" : "&tab=" + tab}">change it</a>`}</div>`
+    : "";
   const back = tab === "results" ? "?tab=results" : (tab === "season" ? "?tab=season" : null);
-  app.innerHTML = cardHeader(card, back) + account + body +
+  app.innerHTML = cardHeader(card, back) + account + chosenLine + body +
     (live || (locked && !settledAll) ? `<div class="refresh">${ICON.refresh}Updates itself every minute from the live feed</div>` : "") +
     (!locked && !hidden && card.entries.length === 0 ? "" : "");
 
@@ -505,7 +561,10 @@ async function renderUpcoming(){
   const mine = ours.length ? `<div class="sec">Our nights</div><div class="list">${ours.map((c) => `
       <a class="row ours" href="?match=${esc(c.slug)}&tab=upcoming">
         <div><div class="t">${esc(c.title)}</div><div class="m">${c.games.map((g) => esc(g.home + " v " + g.away)).join(" · ")}<br>${esc(dShort(c.kickoff))} · ${tSpain(c.kickoff)} Spain</div></div>
-        <div class="k" style="color:var(--goldlt)">${c.bet_count} bets<small>${c.players.length === 2 ? "Both picked" : c.players.length ? "1 of 2 picked" : "Picks open"}</small></div>
+        <div class="k" style="color:var(--goldlt)">${c.bet_count} bets<small>${
+          c.mode === "chooser"
+            ? (c.chooser ? esc(shortName(c.chooser)) + " chose" : "Nobody's chosen yet")
+            : (c.players.length === 2 ? "Both picked" : c.players.length ? "1 of 2 picked" : "Picks open")}</small></div>
       </a>`).join("")}</div>` : "";
 
   const byDay = {};

@@ -41,7 +41,10 @@ const json = (body: unknown, status = 200) =>
 const pubMatch = (m: any) => ({
   slug: m.slug, title: m.title, competition: m.competition, season: m.season,
   venue: m.venue, kickoff: m.kickoff, status: m.status, home: m.home, away: m.away,
+  mode: m.mode ?? "both", chooser: m.chooser ?? null,
 });
+const other = (player: string) => PLAYERS.find((p) => p !== player)!;
+const flip = (c: string) => (c === "A" ? "B" : "A");
 const pubGame = (g: any) => ({
   key: g.key, home: g.home, away: g.away, home_short: g.home_short, away_short: g.away_short,
   home_color: g.home_color, away_color: g.away_color, venue: g.venue, kickoff: g.kickoff,
@@ -82,8 +85,9 @@ async function loadCard(match: any, withEntries: boolean) {
     const { data: entries } = await supabase.from("pickem_entries")
       .select("player, picks, submitted_at").eq("match_id", match.id).order("submitted_at");
     out.entries = latestPerPlayer(entries ?? []);
-    // Until kick-off, show who has picked but not what, so nobody can copy.
-    if (Date.now() < lockTime(m2 ?? match, games ?? [])) {
+    // One chooser means there is nothing to copy: both sides are known the moment
+    // the card is answered, so the board is open straight away.
+    if ((m2 ?? match).mode !== "chooser" && Date.now() < lockTime(m2 ?? match, games ?? [])) {
       out.entries = out.entries.map((e: any) => ({ player: e.player, submitted_at: e.submitted_at, picks: null, hidden: true }));
     }
   }
@@ -145,7 +149,7 @@ async function handleSubmit(req: Request): Promise<Response> {
   if (!PLAYERS.includes(player)) return json({ ok: false, error: "Pick who you are first" }, 400);
   if (!picks || typeof picks !== "object") return json({ ok: false, error: "Picks required" }, 400);
   const { data: match } = await supabase.from("pickem_matches")
-    .select("id, status, kickoff").eq("slug", slug).single();
+    .select("id, status, kickoff, mode").eq("slug", slug).single();
   if (!match) return json({ ok: false, error: "Match not found" }, 404);
   if (match.status !== "open") return json({ ok: false, error: "Picks are closed for this night." }, 403);
   const { data: games } = await supabase.from("pickem_games").select("kickoff").eq("match_id", match.id);
@@ -160,9 +164,20 @@ async function handleSubmit(req: Request): Promise<Response> {
     if (v !== "A" && v !== "B") return json({ ok: false, error: "Every bet needs a pick" }, 400);
     clean[String(b.n)] = v;
   }
-  const { error } = await supabase.from("pickem_entries").insert({ match_id: match.id, player, picks: clean });
+  // In chooser mode the submitter answers for the night and the other player is
+  // put on the opposite side of every bet, so each one moves money.
+  const rows = [{ match_id: match.id, player, picks: clean }];
+  if (match.mode === "chooser") {
+    const mirrored: Record<string, string> = {};
+    for (const [n, c] of Object.entries(clean)) mirrored[n] = flip(c);
+    rows.push({ match_id: match.id, player: other(player), picks: mirrored });
+  }
+  const { error } = await supabase.from("pickem_entries").insert(rows);
   if (error) return json({ ok: false, error: error.message }, 500);
-  return json({ ok: true });
+  if (match.mode === "chooser") {
+    await supabase.from("pickem_matches").update({ chooser: player }).eq("id", match.id);
+  }
+  return json({ ok: true, chooser: match.mode === "chooser" ? player : null, opponent: other(player) });
 }
 
 // ---------- FIXTURES (next Champions League games, for the Upcoming tab) ----------
