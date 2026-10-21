@@ -334,7 +334,13 @@ async function renderCard(slug, tab){
   nav(tab);
   const base = await api("?match=" + encodeURIComponent(slug));
   if (!base || !base.match) { app.innerHTML = '<p class="note">Night not found.</p>'; return; }
-  if (!isLocked(base) && base.match.status === "open" && params.get("view") !== "board") return renderPicker(base, tab);
+  const open = !isLocked(base) && base.match.status === "open";
+  // A chooser night that has been chosen opens on the board: whoever didn't choose
+  // should see the sides they've been given, not an invitation to answer again.
+  // The card is reopened only by the explicit edit link (view=pick).
+  const chosen = base.match.mode === "chooser" && !!base.match.chooser;
+  const wantPicker = params.get("view") === "pick";
+  if (open && params.get("view") !== "board" && (wantPicker || !chosen)) return renderPicker(base, tab);
   return renderBoard(slug, tab);
 }
 
@@ -383,9 +389,12 @@ async function renderPicker(card, tab){
     </div>`;
   }).join("");
 
+  // Taking the card off whoever chose it flips all their sides, so say that on the
+  // chip rather than inviting the other one to "choose" a card that is already chosen.
+  const taken = solo && !!card.match.chooser;
   const chip = (p) => {
     const sub = solo
-      ? (card.match.chooser === p ? "Chose this card" : "Tap to choose")
+      ? (card.match.chooser === p ? "Chose this card" : (taken ? "Take over · flips all " + TOTAL : "Tap to choose"))
       : (entryOf[p] ? "Picked · tap to change" : "Not picked yet");
     return `<button type="button" class="chip${name === p ? " on" : ""}" data-name="${p}">${p}<small>${sub}</small></button>`;
   };
@@ -394,9 +403,11 @@ async function renderPicker(card, tab){
     ${cardHeader(card)}
     <div class="lock">${ICON.lock}${solo ? "Card locks at the first kick-off, " : "Picks lock at kick-off, "}<b>${tSpain(lockOf(card))} Spain · ${tUK(lockOf(card))} UK</b></div>
     <div class="who panel">
-      <div class="lbl">${solo ? "Who's choosing tonight's bets?" : "Who's picking?"}</div>
+      <div class="lbl">${solo ? (taken ? "Editing tonight's card" : "Who's choosing tonight's bets?") : "Who's picking?"}</div>
       <div class="chips">${chip(ROB)}${chip(MAR)}</div>
-      ${solo ? `<p class="note" style="font-size:12px;margin:10px 2px 0">Whoever doesn't choose is automatically on the other side of all ${TOTAL}.</p>` : ""}
+      ${solo ? `<p class="note" style="font-size:12px;margin:10px 2px 0">${taken
+          ? esc(card.match.chooser) + " chose this card. Switching the name above hands the choosing over and puts " + esc(card.match.chooser) + " on the opposite side of all " + TOTAL + "."
+          : "Whoever doesn't choose is automatically on the other side of all " + TOTAL + "."}</p>` : ""}
     </div>
     ${blocks}
     <div style="margin-top:18px"><a class="btn ghost" href="?match=${esc(card.match.slug)}&view=board${tab === "tonight" ? "" : "&tab=" + tab}">See the board</a></div>
@@ -540,12 +551,17 @@ async function renderBoard(slug, tab){
     body = scores + `<div class="panel" style="margin-top:12px;padding:6px 10px 4px"><table class="tbl">${head}${rows}</table></div>`;
   }
 
+  // Who chose is a statement, so it stays plain words; editing is an action, so it
+  // gets a bordered button. The two never share a shape.
   const chosenLine = chosenBy
-    ? `<div class="chosenby">${ICON.tick}<b>${esc(chosenBy)}</b> chose tonight's card · ${esc(chosenBy === ROB ? MAR : ROB)} is on the other side${
-        locked ? "" : ` · <a href="?match=${esc(slug)}${tab === "tonight" ? "" : "&tab=" + tab}">change it</a>`}</div>`
+    ? `<div class="chosenby">${ICON.tick}<b>${esc(chosenBy)}</b> chose tonight's card · ${esc(chosenBy === ROB ? MAR : ROB)} is on the other side</div>`
+    : "";
+  const editLine = (chosenBy && !locked)
+    ? `<div style="margin:10px 0 2px"><a class="btn ghost" href="?match=${esc(slug)}&view=pick${tab === "tonight" ? "" : "&tab=" + tab}">Edit tonight's card</a>
+       <p class="note" style="font-size:12px;margin:7px 2px 0">Open until the first kick-off, ${tSpain(lockOf(card))} Spain.</p></div>`
     : "";
   const back = tab === "results" ? "?tab=results" : (tab === "season" ? "?tab=season" : null);
-  app.innerHTML = cardHeader(card, back) + account + chosenLine + body +
+  app.innerHTML = cardHeader(card, back) + account + chosenLine + editLine + body +
     (live || (locked && !settledAll) ? `<div class="refresh">${ICON.refresh}Updates itself every minute from the live feed</div>` : "") +
     (!locked && !hidden && card.entries.length === 0 ? "" : "");
 
