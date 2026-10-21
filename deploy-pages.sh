@@ -6,6 +6,7 @@ cd ~/Projects/pickem
 
 mkdir -p docs
 cp site/index.html docs/index.html
+cp site/favicon.svg docs/favicon.svg
 # stop Jekyll from touching the static file
 touch docs/.nojekyll
 [ -f .gitignore ] || printf "node_modules\n.DS_Store\n" > .gitignore
